@@ -27,7 +27,8 @@ class LiteOrmMeta(type):
         for member_name in classdict._member_names:
             value = classdict[member_name]
             lite_orm_member = value
-            lite_orm_member.visitor_name = "{}.{}".format(lite_orm_class.__tablename__, member_name)
+            lite_orm_member.visitor_name = "{}.{}".format(
+                lite_orm_class.__tablename__, member_name)
             setattr(lite_orm_class, member_name, lite_orm_member)
         return lite_orm_class
 
@@ -87,26 +88,42 @@ class Columns(OperationOverride):
         return hash(self.visitor_name)
 
 
-class BaseTable(OperationOverride, metaclass=LiteOrmMeta):
-    pass
+class ColumnsValue():
+    def __init__(self, value):
+        self.column = None  #TODO
+        self.value = value
+
+
+class BaseTable(metaclass=LiteOrmMeta):
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, ColumnsValue(v))
 
 
 class SqlQuery(object):
     def __init__(self, table):
         self.table = table
         self.query_tree = SqlQueryTree(table)
+
         self.condition_node_joiner = SqlNode(SqlNodeLegalType.JOINER, None)
         self.end_condition_node = None
+
         self.order_node_joiner = SqlNode(SqlNodeLegalType.JOINER, None)
         self.end_order_node = None
+
         self.limit_node = SqlNode(SqlNodeLegalType.JOINER, None)
         self.end_limit_node = None
+
+        self.offset_node = SqlNode(SqlNodeLegalType.JOINER, None)
+        self.end_offset_node = None
 
         self.query_tree.head_node.r_children = self.condition_node_joiner
         self.condition_node_joiner.r_children = self.order_node_joiner
         self.order_node_joiner.r_children = self.limit_node
+        self.limit_node.r_children = self.offset_node
 
-        self.where_node = SqlNode(SqlNodeLegalType.RESERVED_WORD, value="WHERE")
+        self.where_node = SqlNode(SqlNodeLegalType.RESERVED_WORD,
+                                  value="WHERE")
 
     def add_and_condition(self, *args):
         if self.end_condition_node is None:
@@ -117,26 +134,35 @@ class SqlQuery(object):
             k = col_operation.l_o
             v = col_operation.r_o
             operator = col_operation.op
-            judgement_node = SqlNode(SqlNodeLegalType.OPERATION, value=operator)
-            judgement_node.l_children = SqlNode(SqlNodeLegalType.FIELD, value=k)
-            judgement_node.r_children = SqlNode(SqlNodeLegalType.FIELD, value=v)
+            judgement_node = SqlNode(SqlNodeLegalType.OPERATION,
+                                     value=operator)
+            judgement_node.l_children = SqlNode(SqlNodeLegalType.FIELD,
+                                                value=k)
+            judgement_node.r_children = SqlNode(SqlNodeLegalType.FIELD,
+                                                value=v)
             if self.end_condition_node != self.where_node:
-                and_joiner_node = SqlNode(SqlNodeLegalType.CONDITION, value="AND")
+                and_joiner_node = SqlNode(SqlNodeLegalType.CONDITION,
+                                          value="AND")
                 self.end_condition_node.r_children = and_joiner_node
                 self.end_condition_node = and_joiner_node
 
-            condition_node_joiner = SqlNode(SqlNodeLegalType.JOINER, value=None)
+            condition_node_joiner = SqlNode(SqlNodeLegalType.JOINER,
+                                            value=None)
 
-            judgement_node = SqlNode(SqlNodeLegalType.OPERATION, value=operator)
-            judgement_node.l_children = SqlNode(SqlNodeLegalType.FIELD, value=k)
-            judgement_node.r_children = SqlNode(SqlNodeLegalType.FIELD, value=v)
+            judgement_node = SqlNode(SqlNodeLegalType.OPERATION,
+                                     value=operator)
+            judgement_node.l_children = SqlNode(SqlNodeLegalType.FIELD,
+                                                value=k)
+            judgement_node.r_children = SqlNode(SqlNodeLegalType.FIELD,
+                                                value=v)
             condition_node_joiner.l_children = judgement_node
             self.end_condition_node.r_children = condition_node_joiner
             self.end_condition_node = condition_node_joiner
 
     def order_op(self, order_op):
         if self.end_order_node is None:
-            tmp_order_joiner = SqlNode(SqlNodeLegalType.RESERVED_WORD, value="ORDER BY")
+            tmp_order_joiner = SqlNode(SqlNodeLegalType.RESERVED_WORD,
+                                       value="ORDER BY")
             self.order_node_joiner.l_children = tmp_order_joiner
             none_joiner = SqlNode(SqlNodeLegalType.JOINER, value=None)
             tmp_order_joiner.r_children = none_joiner
@@ -158,6 +184,12 @@ class SqlQuery(object):
         num_node = SqlNode(SqlNodeLegalType.NUM, num)
         limit_node.r_children = num_node
         self.limit_node.l_children = limit_node
+
+    def offset_op(self, num):
+        offset_node = SqlNode(SqlNodeLegalType.RESERVED_WORD, "OFFSET")
+        num_node = SqlNode(SqlNodeLegalType.NUM, num)
+        offset_node.r_children = num_node
+        self.offset_node.l_children = offset_node
 
     def init_select(self):
         select_node = SqlNode(SqlNodeLegalType.RESERVED_WORD, value="SELECT")
@@ -217,6 +249,68 @@ class SqlQuery(object):
             end_value_node.l_children = value_node
             end_value_node = value_joiner
 
+    def init_insert(self, tab_obj):
+        insert_node = SqlNode(SqlNodeLegalType.RESERVED_WORD, value="INSERT")
+        into_node = SqlNode(SqlNodeLegalType.RESERVED_WORD, value="INTO")
+        insert_node.l_children = into_node
+        self.query_tree.head_node.l_children = insert_node
+
+        values_node = SqlNode(SqlNodeLegalType.RESERVED_WORD, value="VALUES")
+        self.query_tree.head_node.r_children = values_node
+
+        fields_joiner_node = SqlNode(SqlNodeLegalType.JOINER, value=None)
+        values_joiner_node = SqlNode(SqlNodeLegalType.JOINER, value=None)
+
+        values_node.l_children = fields_joiner_node
+        values_node.r_children = values_joiner_node
+
+        field_l_brackets = SqlNode(SqlNodeLegalType.BRACKETS, value='(')
+        field_r_brackets = SqlNode(SqlNodeLegalType.BRACKETS, value=')')
+
+        fields_end_node = None
+        fields_joiner_node.l_children = field_l_brackets
+        fields_joiner_node.r_children = field_r_brackets
+
+        value_l_brackets = SqlNode(SqlNodeLegalType.BRACKETS, value='(')
+        value_r_brackets = SqlNode(SqlNodeLegalType.BRACKETS, value=')')
+
+        value_end_node = None
+        values_joiner_node.l_children = value_l_brackets
+        values_joiner_node.r_children = value_r_brackets
+
+        for k, v in tab_obj.__dict__.items():
+            #Field
+            if not isinstance(v, ColumnsValue):
+                continue
+            if fields_end_node is None:
+                fields_end_node = field_l_brackets
+            else:
+                comma_joiner = SqlNode(SqlNodeLegalType.COMMA, value=',')
+                fields_end_node.r_children = comma_joiner
+                fields_end_node = comma_joiner
+
+            field_joiner = SqlNode(SqlNodeLegalType.JOINER, value=None)
+
+            fields_end_node.r_children = field_joiner
+            fields_end_node = field_joiner
+            col_node = SqlNode(SqlNodeLegalType.FIELD, value=k)
+            fields_end_node.l_children = col_node
+
+            #Value
+            if value_end_node is None:
+                value_end_node = value_l_brackets
+            else:
+                comma_joiner = SqlNode(SqlNodeLegalType.COMMA, value=',')
+                value_end_node.r_children = comma_joiner
+                value_end_node = comma_joiner
+
+            value_joiner = SqlNode(SqlNodeLegalType.JOINER, value=None)
+
+            value_end_node.r_children = value_joiner
+            value_end_node = value_joiner
+            value_node = SqlNode(SqlNodeLegalType.FIELD, value=v.value)
+            value_end_node.l_children = value_node
+
 
 class Query(SqlQuery):
     def filter_by(self, **kwargs):
@@ -257,8 +351,13 @@ class Query(SqlQuery):
     def one(self):
         self.init_select()
 
-    def add(self):
-        pass
+    def insert(self, tab_obj):
+        assert isinstance(tab_obj, BaseTable)
+        self.init_insert(tab_obj)
+        print("-" * 20)
+        sql = self.query_tree.dump_sql()
+        print(sql)
+        return self
 
     def order_by(self, col_order):
         self.order_op(col_order)
@@ -269,4 +368,5 @@ class Query(SqlQuery):
         return self
 
     def offset(self, num):
-        pass
+        self.offset_op(num)
+        return self

@@ -21,5 +21,10 @@ if __name__ == "__main__":
     # Query(TestTable).filter(TestTable.test_int==1).order_by(TestTable.name.desc()).all()
     # Query(TestTable).filter(TestTable.test_int==1).order_by(TestTable.name.desc()).order_by(TestTable.test_int.asc()).all()
     # Query(TestTable).filter(TestTable.test_int==1).filter(TestTable.name=='a').limit(1).all()
+    # Query(TestTable).filter(TestTable.test_int==1).filter(TestTable.name=='a').limit(1).offset(2).all()
+    # Query(TestTable).filter(TestTable.test_int==1).offset(2).all()
+    # Query(TestTable).offset(2).all()
+    test_table = TestTable(test_int=1, name='benjen')
+    Query(TestTable).insert(test_table)
     #in operation 
     #test = Query(TestTable).filter_in(in_(name=['a','b']))
